@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <input>
+        <net-file value="intersection.net.xml"/>
+        <route-files value="routes_bangalore.rou.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="86400"/>
+        <step-length value="10"/>
+    </time>
+</configuration>

@@ -1,0 +1,50 @@
+{
+  "model_name": "ppo-bangalore-traffic-signal",
+  "algorithm": "PPO (clipped surrogate objective, GAE)",
+  "framework": "pytorch",
+  "torch_version": "2.11.0+cpu",
+  "python_version": "3.12.13",
+  "created_at": "2026-07-13T21:51:41.923847+00:00",
+  "architecture": {
+    "class": "ActorCritic",
+    "state_dim": 8,
+    "action_dim": 2,
+    "hidden_dim": 64,
+    "backbone": "Linear(8,64) -> Tanh -> Linear(64,64) -> Tanh",
+    "actor_head": "Linear(64,2)",
+    "critic_head": "Linear(64,1)",
+    "weight_init": "orthogonal (gain=sqrt(2) backbone, 0.01 actor, 1.0 critic)",
+    "n_parameters": 4931
+  },
+  "hyperparameters": {
+    "learning_rate_init": 0.0003,
+    "learning_rate_final": 5e-05,
+    "gamma": 0.95,
+    "gae_lambda": 0.95,
+    "eps_clip": 0.2,
+    "k_epochs": 8,
+    "rollout_len": 1024,
+    "entropy_coef": 0.05,
+    "vf_coef": 0.5,
+    "mini_batch": 256,
+    "grad_clip_norm": 0.5,
+    "reward_normalisation": "reward / 1000, clipped to [-10, 0]"
+  },
+  "training": {
+    "total_episodes": 150,
+    "phase_1_episodes": 100,
+    "phase_2_episodes": 50,
+    "total_updates": 148,
+    "total_env_steps": 152498,
+    "final_10ep_mean_reward": -2086767.0,
+    "overall_mean_reward": -2101604.2666666666,
+    "best_reward": -1937120.0
+  },
+  "environment": {
+    "name": "Bangalore Traffic Signal Control",
+    "simulator": "SUMO",
+    "intersection": "4-way, 2 lanes/edge, 12 turning movements",
+    "vehicles_per_day": 16400,
+    "vehicle_mix": "60% cars, 30% motorcycles, 10% auto-rickshaws"
+  }
+}
