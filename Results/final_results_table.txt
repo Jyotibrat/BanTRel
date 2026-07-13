@@ -1,0 +1,23 @@
+
+============================================================================================
+  BANGALORE TRAFFIC SIMULATION — PPO vs Fixed-Cycle
+  16,400 vehicles / day   12 turn movements   3 vehicle types
+============================================================================================
+  Metric                           Unit                  PPO      Fixed      Delta Outcome         
+--------------------------------------------------------------------------------------------
+  -- Benchmark metrics (2WSI-RL protocol) ---------------------------------------------
+  Total Stopped Vehicles           vehicles            6.773      6.997     -0.224 PPO             
+  Total Waiting Time               seconds           264.106    269.153     -5.047 PPO             
+  Mean Waiting Time                s / vehicle        15.691     14.968     +0.723 Fixed-Cycle     
+  Mean Speed                       m/s                 3.005      2.959     +0.047 PPO             
+--------------------------------------------------------------------------------------------
+  -- Additional metrics ----------------------------------------------------------------
+  Avg Waiting Time                 s / vehicle        15.691     14.968     +0.723 Fixed-Cycle     
+  Avg Travel Time                  seconds           185.179    183.218     +1.961 Fixed-Cycle     
+  Queue Length                     vehicles            6.773      6.997     -0.224 PPO             
+  Throughput                       veh / step          1.974      1.973     +0.000 Tie             
+  Delay vs Free-Flow               seconds             7.039      6.217     +0.822 Fixed-Cycle     
+============================================================================================
+
+  Score  —  PPO: 4   Fixed-Cycle: 4   Ties: 1
+============================================================================================
