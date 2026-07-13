@@ -206,4 +206,4 @@ Vehicle count data used to construct the Bangalore demand schedule was obtained 
 
 ## License
 
-This project is released for academic and educational purposes. See `LICENSE` for details.
+This project is released for academic and educational purposes. See [LICENSE](https://github.com/Jyotibrat/BanTRel/blob/main/LICENSE) for details.
