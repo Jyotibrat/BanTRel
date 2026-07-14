@@ -58,7 +58,8 @@ Traffic volumes used in this project are based on average counts obtained from G
 | Mid-morning | 11:00 – 13:00 | 2,850 |
 | Afternoon | 13:00 – 16:00 | 2,100 |
 | Evening rush | 16:00 – 20:00 | 4,400 |
-| Evening | 20:00 – 23:00 | 2,500 |
+| Evening-Night | 20:00 – 23:00 | 2,500 |
+| Night | 23:00 - 24:00 | 550 |
 | **Total** | **24 hours** | **16,400** |
 
 ---
