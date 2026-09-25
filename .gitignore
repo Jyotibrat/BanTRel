@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+.env
+
+# Model files and checkpoints (too large for git)
+model_files/
+*.pt
+*.pth
+.cache/
+
+# IDEs
+.vscode/
+.idea/
