@@ -1,0 +1,229 @@
+/* ─── Google Fonts (must be first) ────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap");
+
+@import "tailwindcss";
+
+/* ─── Design Tokens ────────────────────────────────────────── */
+@theme {
+  /* Surface colors */
+  --color-background:              #111125;
+  --color-surface:                 #111125;
+  --color-surface-dim:             #111125;
+  --color-surface-bright:          #37374d;
+  --color-surface-container-lowest:#0c0c1f;
+  --color-surface-container-low:   #1a1a2e;
+  --color-surface-container:       #1e1e32;
+  --color-surface-container-high:  #28283d;
+  --color-surface-container-highest:#333348;
+  --color-surface-variant:         #333348;
+
+  /* On-surface */
+  --color-on-surface:              #e2e0fc;
+  --color-on-background:           #e2e0fc;
+  --color-on-surface-variant:      #c8c4d3;
+  --color-inverse-surface:         #e2e0fc;
+  --color-inverse-on-surface:      #2f2e43;
+
+  /* Outline */
+  --color-outline:                 #928f9d;
+  --color-outline-variant:         #474552;
+
+  /* Primary — lavender */
+  --color-primary:                 #c5c0ff;
+  --color-on-primary:              #2a1f7e;
+  --color-primary-container:       #a29bfe;
+  --color-on-primary-container:    #362d8a;
+  --color-primary-fixed:           #e3dfff;
+  --color-primary-fixed-dim:       #c5c0ff;
+  --color-on-primary-fixed:        #140067;
+  --color-on-primary-fixed-variant:#413996;
+  --color-inverse-primary:         #5952af;
+  --color-surface-tint:            #c5c0ff;
+
+  /* Secondary — green */
+  --color-secondary:               #4ae183;
+  --color-on-secondary:            #003919;
+  --color-secondary-container:     #06bb63;
+  --color-on-secondary-container:  #00431f;
+  --color-secondary-fixed:         #6bfe9c;
+  --color-secondary-fixed-dim:     #4ae183;
+  --color-on-secondary-fixed:      #00210c;
+  --color-on-secondary-fixed-variant:#005228;
+
+  /* Tertiary — red/salmon */
+  --color-tertiary:                #ffb4a9;
+  --color-on-tertiary:             #690001;
+  --color-tertiary-container:      #ff8271;
+  --color-on-tertiary-container:   #7f0002;
+  --color-tertiary-fixed:          #ffdad5;
+  --color-tertiary-fixed-dim:      #ffb4a9;
+  --color-on-tertiary-fixed:       #410000;
+  --color-on-tertiary-fixed-variant:#910807;
+
+  /* Error */
+  --color-error:                   #ffb4ab;
+  --color-on-error:                #690005;
+  --color-error-container:         #93000a;
+  --color-on-error-container:      #ffdad6;
+
+  /* Semantic telemetry */
+  --color-ppo-win:                 #2ecc71;
+  --color-baseline-win:            #e74c3c;
+  --color-tie:                     #f39c12;
+
+  /* Typography — Space Grotesk */
+  --font-family-headline: "Space Grotesk", sans-serif;
+  /* Typography — Inter */
+  --font-family-body: "Inter", sans-serif;
+  /* Typography — JetBrains Mono */
+  --font-family-label: "JetBrains Mono", monospace;
+
+  /* Border radius */
+  --radius-sm:   0.25rem;
+  --radius:      0.5rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-xl:   1.5rem;
+  --radius-full: 9999px;
+
+  /* Spacing */
+  --spacing-gutter:          1rem;
+  --spacing-gutter-desktop:  1.5rem;
+  --spacing-margin:          1rem;
+  --spacing-margin-desktop:  2rem;
+  --spacing-xs:              0.25rem;
+  --spacing-sm:              0.5rem;
+  --spacing-md:              1rem;
+  --spacing-lg:              1.5rem;
+  --spacing-xl:              2rem;
+
+  /* Animations */
+  --animate-pulse-glow: pulseGlow 3s infinite alternate ease-in-out;
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────── */
+@keyframes pulseGlow {
+  0%   { box-shadow: 0 0 12px rgba(162, 155, 254, 0.2); }
+  100% { box-shadow: 0 0 28px rgba(162, 155, 254, 0.55); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ─── Base ──────────────────────────────────────────────────── */
+html, body {
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+  font-family: var(--font-family-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+/* ─── Material Symbols ──────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+  font-family: 'Material Symbols Outlined', sans-serif;
+}
+
+/* ─── Atmospheric grid background ───────────────────────────── */
+.grid-lines {
+  background-size: 40px 40px;
+  background-image:
+    linear-gradient(to right,  rgba(71, 69, 82, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(71, 69, 82, 0.15) 1px, transparent 1px);
+}
+
+/* ─── Glow pulse utility ────────────────────────────────────── */
+.glow-pulse {
+  animation: pulseGlow 3s infinite alternate ease-in-out;
+}
+
+/* ─── Tabular numbers (for telemetry) ───────────────────────── */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Custom range slider thumb (Stitch spec) ───────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: var(--color-surface-container-low);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 9999px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: #161626;
+  border: 3px solid var(--color-primary-container);
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(162, 155, 254, 0.4);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  margin-top: -7px;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  border-color: var(--color-primary);
+  transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: var(--color-surface-container-low);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 9999px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: #161626;
+  border: 3px solid var(--color-primary-container);
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(162, 155, 254, 0.4);
+}
+
+/* ─── Skeleton shimmer ──────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-container) 0%,
+    var(--color-surface-container-high) 50%,
+    var(--color-surface-container) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+  border-radius: var(--radius);
+}
+
+/* ─── Scrollbar styling ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-surface-container); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-outline); }
