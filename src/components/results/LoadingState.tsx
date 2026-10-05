@@ -17,7 +17,7 @@ export function LoadingState() {
       </div>
 
       {/* Status text */}
-      <div className="text-center space-y-2 w-full px-4">
+      <div className="text-center space-y-2 w-full max-w-[450px] mx-auto px-4">
         <div className="flex items-center justify-center gap-2 font-mono text-xs text-[#a29bfe] tracking-widest uppercase">
           <span className="w-1.5 h-1.5 rounded-full bg-[#a29bfe] animate-pulse" />
           <span>Simulation Running</span>
@@ -26,7 +26,7 @@ export function LoadingState() {
         <h2 className="font-['Space_Grotesk'] font-semibold text-2xl text-[#e2e0fc]">
           SUMO Engine Processing…
         </h2>
-        <p className="font-['Inter'] text-[#c8c4d3] text-sm max-w-md mx-auto">
+        <p className="font-['Inter'] text-[#c8c4d3] text-sm w-full mx-auto">
           The PPO agent and fixed-cycle baseline are running their simulation passes. This typically takes 1–5 minutes.
         </p>
       </div>
