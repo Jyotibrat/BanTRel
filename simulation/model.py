@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions import Categorical
+import spaces
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -47,6 +48,7 @@ class PPOPolicy:
         if seed is not None:
             torch.manual_seed(seed)
 
+    @spaces.GPU
     def choose_action(self, state: np.ndarray) -> int:
         with torch.no_grad():
             tensor = torch.FloatTensor(state).unsqueeze(0).to(DEVICE)
