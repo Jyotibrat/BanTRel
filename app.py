@@ -123,3 +123,15 @@ async def health():
         "network_built": os.path.exists(NET_PATH),
         "checkpoint_found": os.path.exists(CHECKPOINT_PATH),
     }
+
+if __name__ == "__main__":
+    import subprocess
+    import uvicorn
+    
+    # Build the network files if they don't exist yet
+    if not os.path.exists(NET_PATH):
+        print("Building SUMO network...")
+        subprocess.run(["python", "simulation/build_network.py"], check=True)
+        
+    # Start the FastAPI server on the port Hugging Face expects
+    uvicorn.run(app, host="0.0.0.0", port=7860)
