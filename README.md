@@ -6,6 +6,7 @@ colorTo: purple
 sdk: gradio
 app_file: app.py
 pinned: false
+python_version: "3.12"
 ---
 
 # BanTRel Backend API
