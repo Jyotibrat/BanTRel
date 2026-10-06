@@ -27,6 +27,11 @@ CHECKPOINT_PATH = os.environ.get(
     "BANTREL_CHECKPOINT", os.path.join(BASE_DIR, "model_files", "ppo_bangalore.pt")
 )
 
+import subprocess
+if not os.path.exists(NET_PATH):
+    print("Building SUMO network...")
+    subprocess.run(["python", "simulation/build_network.py"], check=True)
+
 MAX_N_RUNS = 3
 MAX_CUSTOM_VEHICLES = 60_000  # ~3.7x the default day, generous headroom before state clipping dominates
 
@@ -124,14 +129,4 @@ async def health():
         "checkpoint_found": os.path.exists(CHECKPOINT_PATH),
     }
 
-if __name__ == "__main__":
-    import subprocess
-    import uvicorn
-    
-    # Build the network files if they don't exist yet
-    if not os.path.exists(NET_PATH):
-        print("Building SUMO network...")
-        subprocess.run(["python", "simulation/build_network.py"], check=True)
-        
-    # Start the FastAPI server on the port Hugging Face expects
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+
