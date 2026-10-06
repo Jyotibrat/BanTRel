@@ -7,6 +7,7 @@ sdk: gradio
 app_file: app.py
 pinned: false
 python_version: "3.12"
+hardware: "cpu-basic"
 ---
 
 # BanTRel Backend API
