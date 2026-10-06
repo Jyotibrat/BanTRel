@@ -28,9 +28,22 @@ CHECKPOINT_PATH = os.environ.get(
 )
 
 import subprocess
+import time
+
+LOCK_PATH = os.path.join(SUMO_CONFIG_DIR, "build.lock")
 if not os.path.exists(NET_PATH):
-    print("Building SUMO network...")
-    subprocess.run(["python", "simulation/build_network.py"], check=True)
+    try:
+        os.makedirs(SUMO_CONFIG_DIR, exist_ok=True)
+        # Atomic lock creation prevents multiple workers from building concurrently
+        fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        print("Building SUMO network...")
+        subprocess.run(["python", "simulation/build_network.py"], check=True)
+    except FileExistsError:
+        # Another worker is building it, wait for it to finish
+        print("Waiting for SUMO network to be built by another worker...")
+        while not os.path.exists(NET_PATH):
+            time.sleep(0.5)
 
 MAX_N_RUNS = 3
 MAX_CUSTOM_VEHICLES = 60_000  # ~3.7x the default day, generous headroom before state clipping dominates
@@ -129,4 +142,10 @@ async def health():
         "checkpoint_found": os.path.exists(CHECKPOINT_PATH),
     }
 
+import gradio as gr
+demo = gr.Blocks()
+with demo:
+    gr.Markdown("BanTRel Backend API is running on ZeroGPU.")
+
+app = gr.mount_gradio_app(app, demo, path="/")
 
