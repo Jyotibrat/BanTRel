@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
 
 
 class ActorCritic(nn.Module):
