@@ -1,73 +1,117 @@
 """
-FastAPI backend for the BanTRel web demo. Deployed as an HF Docker Space.
+FastAPI backend for the BanTRel web demo, served from a Hugging Face Gradio
+Space running on ZeroGPU.
 
 Flow: POST /simulate returns a job_id immediately; the actual SUMO run
-happens in a background task (can take anywhere from a few seconds to
-~1-2 min depending on n_runs and demand size). The frontend polls
+happens in a background task (anywhere from a few seconds to ~1-2 min
+depending on n_runs and demand size). The frontend polls
 GET /simulate/{job_id} until status == "done" or "error".
+
+ZeroGPU notes
+-------------
+* ZeroGPU refuses to start a Space with no @spaces.GPU function, so a tiny
+  never-called function is declared below purely to satisfy that check.
+* The simulation itself (SUMO + a small PPO policy) is CPU work and runs
+  directly in the background task. It is deliberately NOT wrapped in
+  @spaces.GPU, so it does not consume GPU quota.
+* On a Gradio SDK Space the platform runs `python app.py`, so this file must
+  start the server itself (see the uvicorn.run call at the bottom).
 """
 
+# `spaces` must be imported before torch (which simulation/ imports below).
+try:
+    import spaces
+except ImportError:  # local development without the `spaces` package
+    class _NoSpaces:
+        @staticmethod
+        def GPU(*args, **kwargs):
+            if args and callable(args[0]) and not kwargs:
+                return args[0]
+
+            def decorator(func):
+                return func
+
+            return decorator
+
+    spaces = _NoSpaces()
+
+
+@spaces.GPU(duration=1)
+def _zerogpu_keepalive() -> None:
+    """Never called. Only satisfies ZeroGPU's startup check."""
+    return None
+
+
 import os
+import subprocess
+import sys
+import threading
+import time
 import traceback
 import uuid
 from typing import Literal, Optional
 
+import gradio as gr
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-try:
-    import spaces
-except ImportError:
-    class DummySpaces:
-        def GPU(self, duration=None, *args, **kwargs):
-            def decorator(func):
-                return func
-            return decorator
-    spaces = DummySpaces()
-
+from download_checkpoint import ensure_checkpoint
 from simulation.runner import run_simulation
 
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SUMO_CONFIG_DIR = os.path.join(BASE_DIR, "sumo_config")
 NET_PATH = os.path.join(SUMO_CONFIG_DIR, "intersection.net.xml")
-# Prefer an env var so you can swap checkpoints without a code change /
-# point at a path where you've downloaded the HF model file at build time.
+# Prefer an env var so you can swap checkpoints without a code change.
 CHECKPOINT_PATH = os.environ.get(
     "BANTREL_CHECKPOINT", os.path.join(BASE_DIR, "model_files", "ppo_bangalore.pt")
 )
 
-import subprocess
-import time
+MAX_N_RUNS = 3
+MAX_CUSTOM_VEHICLES = 60_000  # ~3.7x the default day, generous headroom before state clipping dominates
+MAX_PENDING_JOBS = 4          # queued + running; beyond this POST /simulate returns 429
+JOB_TTL_SECONDS = 30 * 60     # finished jobs are discarded after this long
 
-LOCK_PATH = os.path.join(SUMO_CONFIG_DIR, "build.lock")
+
+# --------------------------------------------------------------------------
+# Startup: build the SUMO network and fetch the checkpoint if missing.
+# Failures are printed but do not stop the server, so /health can report them.
+# --------------------------------------------------------------------------
 if not os.path.exists(NET_PATH):
     try:
         os.makedirs(SUMO_CONFIG_DIR, exist_ok=True)
-        # Atomic lock creation prevents multiple workers from building concurrently
-        fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
         print("Building SUMO network...")
-        subprocess.run(["python", "simulation/build_network.py"], check=True)
-    except FileExistsError:
-        # Another worker is building it, wait for it to finish
-        print("Waiting for SUMO network to be built by another worker...")
-        while not os.path.exists(NET_PATH):
-            time.sleep(0.5)
+        subprocess.run(
+            [sys.executable, os.path.join(BASE_DIR, "simulation", "build_network.py")],
+            check=True,
+        )
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
 
-MAX_N_RUNS = 3
-MAX_CUSTOM_VEHICLES = 60_000  # ~3.7x the default day, generous headroom before state clipping dominates
+try:
+    ensure_checkpoint(CHECKPOINT_PATH)
+except Exception:  # noqa: BLE001
+    traceback.print_exc()
 
-app = FastAPI(title="BanTRel Simulation API")
 
-app.add_middleware(
+# --------------------------------------------------------------------------
+# API
+# --------------------------------------------------------------------------
+api = FastAPI(title="BanTRel Simulation API")
+
+api.add_middleware(
     CORSMiddleware,
+    # Set BANTREL_CORS_ORIGINS=https://bantrel.becore.space in the Space
+    # variables to lock this down; "*" is fine for a public demo.
     allow_origins=os.environ.get("BANTREL_CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-jobs: dict[str, dict] = {}  # in-memory job store — fine for a single-container demo
+jobs: dict[str, dict] = {}  # in-memory job store; lost on restart
+_jobs_lock = threading.Lock()
+# SUMO/TraCI runs share process-level state, so run one simulation at a time.
+_SIM_SLOT = threading.Semaphore(1)
 
 
 class SimulateRequest(BaseModel):
@@ -103,42 +147,31 @@ class SimulateRequest(BaseModel):
                 "auto": self.autorickshaw_pct / 100}
 
 
-@spaces.GPU(duration=120)
-def run_simulation_gpu_wrapper(req_json: str) -> str:
-    import json
-    req_dict = json.loads(req_json)
-    req = SimulateRequest(**req_dict)
-    mix = req.resolve_mix()
-    result = run_simulation(
-        net_path=NET_PATH,
-        sumo_config_dir=SUMO_CONFIG_DIR,
-        checkpoint_path=CHECKPOINT_PATH,
-        policy=req.policy,
-        demand_mode=req.mode,
-        total_vehicles=req.total_vehicles,
-        period=req.period,
-        mix=mix,
-        n_runs=req.n_runs,
-        deterministic=req.deterministic,
-        seed=req.seed,
-    )
-    return json.dumps(result)
+def _set_job(job_id: str, **fields) -> None:
+    with _jobs_lock:
+        jobs[job_id].update(fields)
+
+
+def _purge_old_jobs() -> None:
+    now = time.time()
+    with _jobs_lock:
+        stale = [
+            job_id for job_id, job in jobs.items()
+            if job["status"] in ("done", "error")
+            and now - job.get("created", now) > JOB_TTL_SECONDS
+        ]
+        for job_id in stale:
+            del jobs[job_id]
 
 
 def _run_job(job_id: str, req: SimulateRequest) -> None:
-    jobs[job_id]["status"] = "running"
-    try:
-        mix = req.resolve_mix()
-        if req.mode == "custom" and (req.total_vehicles or 0) > MAX_CUSTOM_VEHICLES:
-            raise ValueError(f"total_vehicles capped at {MAX_CUSTOM_VEHICLES} for this demo")
+    with _SIM_SLOT:
+        _set_job(job_id, status="running")
+        try:
+            mix = req.resolve_mix()
+            if req.mode == "custom" and (req.total_vehicles or 0) > MAX_CUSTOM_VEHICLES:
+                raise ValueError(f"total_vehicles capped at {MAX_CUSTOM_VEHICLES} for this demo")
 
-        if os.environ.get("SPACE_ID"):
-            from gradio_client import Client
-            import json
-            client = Client("http://127.0.0.1:7860/")
-            res_str = client.predict(req.model_dump_json(), api_name="/run_sim")
-            result = json.loads(res_str)
-        else:
             result = run_simulation(
                 net_path=NET_PATH,
                 sumo_config_dir=SUMO_CONFIG_DIR,
@@ -152,28 +185,36 @@ def _run_job(job_id: str, req: SimulateRequest) -> None:
                 deterministic=req.deterministic,
                 seed=req.seed,
             )
-        jobs[job_id] = {"status": "done", "result": result}
-    except Exception as exc:  # noqa: BLE001 — surface any failure to the client
-        jobs[job_id] = {"status": "error", "error": str(exc), "trace": traceback.format_exc()}
+            _set_job(job_id, status="done", result=result)
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the client
+            _set_job(job_id, status="error", error=str(exc), trace=traceback.format_exc())
 
 
-@app.post("/simulate")
+@api.post("/simulate")
 async def start_simulation(req: SimulateRequest, background_tasks: BackgroundTasks):
-    job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "queued"}
+    _purge_old_jobs()
+    with _jobs_lock:
+        pending = sum(1 for j in jobs.values() if j["status"] in ("queued", "running"))
+        if pending >= MAX_PENDING_JOBS:
+            raise HTTPException(
+                status_code=429, detail="Server is busy, please try again shortly"
+            )
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {"status": "queued", "created": time.time()}
     background_tasks.add_task(_run_job, job_id, req)
     return {"job_id": job_id}
 
 
-@app.get("/simulate/{job_id}")
+@api.get("/simulate/{job_id}")
 async def get_status(job_id: str):
-    job = jobs.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job not found")
-    return job
+    with _jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return {k: v for k, v in job.items() if k != "created"}
 
 
-@app.get("/health")
+@api.get("/health")
 async def health():
     return {
         "status": "ok",
@@ -181,20 +222,18 @@ async def health():
         "checkpoint_found": os.path.exists(CHECKPOINT_PATH),
     }
 
-import gradio as gr
-demo = gr.Blocks()
-with demo:
-    gr.Markdown("BanTRel Backend API is running on ZeroGPU.")
-    in_box = gr.Textbox(visible=False)
-    out_box = gr.Textbox(visible=False)
-    btn = gr.Button("Run", visible=False)
-    btn.click(fn=run_simulation_gpu_wrapper, inputs=in_box, outputs=out_box, api_name="run_sim")
 
-app = gr.mount_gradio_app(app, demo, path="/")
+# --------------------------------------------------------------------------
+# Gradio shell (required for a Gradio SDK / ZeroGPU Space) + server start
+# --------------------------------------------------------------------------
+with gr.Blocks(title="BanTRel Backend") as demo:
+    gr.Markdown("BanTRel backend API is running. See `/health` and `/docs`.")
+    # Wires the keepalive function into Gradio so it is visible to ZeroGPU.
+    gr.Button("keepalive", visible=False).click(_zerogpu_keepalive, api_name=False)
 
-# Manually trigger ZeroGPU startup since demo.launch() is bypassed by mount_gradio_app
-try:
-    import spaces.zero
-    spaces.zero.startup()
-except Exception:
-    pass
+app = gr.mount_gradio_app(api, demo, path="/", ssr_mode=False)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=7860)
