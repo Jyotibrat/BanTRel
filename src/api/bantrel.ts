@@ -6,8 +6,8 @@ import type { JobStatus, SimulateRequest } from '../types/simulation';
 const getBaseUrl = (): string => {
   const url = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (!url) {
-    console.warn('VITE_API_BASE_URL is not set. API calls will fail.');
-    return '';
+    // Fall back to local /api path which will be proxied by Vercel
+    return '/api';
   }
   return url.replace(/\/$/, '');
 };
