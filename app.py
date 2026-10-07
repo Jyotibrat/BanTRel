@@ -92,6 +92,35 @@ class SimulateRequest(BaseModel):
         return {"car": self.car_pct / 100, "bike": self.motorcycle_pct / 100,
                 "auto": self.autorickshaw_pct / 100}
 
+# Adaptive GPU decorator
+try:
+    import spaces
+    gpu_decorator = spaces.GPU(duration=120)
+except ImportError:
+    def gpu_decorator(func):
+        return func
+
+@gpu_decorator
+def run_simulation_gpu_wrapper(req_json: str) -> str:
+    import json
+    req_dict = json.loads(req_json)
+    req = SimulateRequest(**req_dict)
+    mix = req.resolve_mix()
+    result = run_simulation(
+        net_path=NET_PATH,
+        sumo_config_dir=SUMO_CONFIG_DIR,
+        checkpoint_path=CHECKPOINT_PATH,
+        policy=req.policy,
+        demand_mode=req.mode,
+        total_vehicles=req.total_vehicles,
+        period=req.period,
+        mix=mix,
+        n_runs=req.n_runs,
+        deterministic=req.deterministic,
+        seed=req.seed,
+    )
+    return json.dumps(result)
+
 
 def _run_job(job_id: str, req: SimulateRequest) -> None:
     jobs[job_id]["status"] = "running"
@@ -100,19 +129,26 @@ def _run_job(job_id: str, req: SimulateRequest) -> None:
         if req.mode == "custom" and (req.total_vehicles or 0) > MAX_CUSTOM_VEHICLES:
             raise ValueError(f"total_vehicles capped at {MAX_CUSTOM_VEHICLES} for this demo")
 
-        result = run_simulation(
-            net_path=NET_PATH,
-            sumo_config_dir=SUMO_CONFIG_DIR,
-            checkpoint_path=CHECKPOINT_PATH,
-            policy=req.policy,
-            demand_mode=req.mode,
-            total_vehicles=req.total_vehicles,
-            period=req.period,
-            mix=mix,
-            n_runs=req.n_runs,
-            deterministic=req.deterministic,
-            seed=req.seed,
-        )
+        if os.environ.get("SPACE_ID"):
+            from gradio_client import Client
+            import json
+            client = Client("http://127.0.0.1:7860/")
+            res_str = client.predict(req.model_dump_json(), api_name="/run_sim")
+            result = json.loads(res_str)
+        else:
+            result = run_simulation(
+                net_path=NET_PATH,
+                sumo_config_dir=SUMO_CONFIG_DIR,
+                checkpoint_path=CHECKPOINT_PATH,
+                policy=req.policy,
+                demand_mode=req.mode,
+                total_vehicles=req.total_vehicles,
+                period=req.period,
+                mix=mix,
+                n_runs=req.n_runs,
+                deterministic=req.deterministic,
+                seed=req.seed,
+            )
         jobs[job_id] = {"status": "done", "result": result}
     except Exception as exc:  # noqa: BLE001 — surface any failure to the client
         jobs[job_id] = {"status": "error", "error": str(exc), "trace": traceback.format_exc()}
@@ -146,6 +182,10 @@ import gradio as gr
 demo = gr.Blocks()
 with demo:
     gr.Markdown("BanTRel Backend API is running on ZeroGPU.")
+    in_box = gr.Textbox(visible=False)
+    out_box = gr.Textbox(visible=False)
+    btn = gr.Button("Run", visible=False)
+    btn.click(fn=run_simulation_gpu_wrapper, inputs=in_box, outputs=out_box, api_name="run_sim")
 
 app = gr.mount_gradio_app(app, demo, path="/")
 
