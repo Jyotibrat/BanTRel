@@ -16,6 +16,15 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
+# Adaptive GPU decorator MUST be defined before importing simulation modules
+# because spaces must be imported before CUDA is initialized by torch
+try:
+    import spaces
+    gpu_decorator = spaces.GPU(duration=120)
+except ImportError:
+    def gpu_decorator(func):
+        return func
+
 from simulation.runner import run_simulation
 
 BASE_DIR = os.path.dirname(__file__)
@@ -92,13 +101,6 @@ class SimulateRequest(BaseModel):
         return {"car": self.car_pct / 100, "bike": self.motorcycle_pct / 100,
                 "auto": self.autorickshaw_pct / 100}
 
-# Adaptive GPU decorator
-try:
-    import spaces
-    gpu_decorator = spaces.GPU(duration=120)
-except ImportError:
-    def gpu_decorator(func):
-        return func
 
 @gpu_decorator
 def run_simulation_gpu_wrapper(req_json: str) -> str:
