@@ -16,14 +16,15 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 
-# Adaptive GPU decorator MUST be defined before importing simulation modules
-# because spaces must be imported before CUDA is initialized by torch
 try:
     import spaces
-    gpu_decorator = spaces.GPU(duration=120)
 except ImportError:
-    def gpu_decorator(func):
-        return func
+    class DummySpaces:
+        def GPU(self, duration=None, *args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+    spaces = DummySpaces()
 
 from simulation.runner import run_simulation
 
@@ -102,7 +103,7 @@ class SimulateRequest(BaseModel):
                 "auto": self.autorickshaw_pct / 100}
 
 
-@gpu_decorator
+@spaces.GPU(duration=120)
 def run_simulation_gpu_wrapper(req_json: str) -> str:
     import json
     req_dict = json.loads(req_json)
@@ -191,3 +192,9 @@ with demo:
 
 app = gr.mount_gradio_app(app, demo, path="/")
 
+# Manually trigger ZeroGPU startup since demo.launch() is bypassed by mount_gradio_app
+try:
+    import spaces.zero
+    spaces.zero.startup()
+except Exception:
+    pass
