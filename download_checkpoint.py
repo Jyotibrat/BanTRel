@@ -38,7 +38,7 @@ def ensure_checkpoint(dest_path: str = DEFAULT_DEST) -> str:
     cached_path = hf_hub_download(
         repo_id=REPO_ID,
         filename=FILENAME,
-        token=os.environ.get("HF_TOKEN"),
+        token=os.environ.get("HF_TOKEN") or None,
     )
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     shutil.copyfile(cached_path, dest_path)
