@@ -231,7 +231,7 @@ with gr.Blocks(title="BanTRel Backend") as demo:
     # Wires the keepalive function into Gradio so it is visible to ZeroGPU.
     gr.Button("keepalive", visible=False).click(_zerogpu_keepalive, api_name=False)
 
-app = gr.mount_gradio_app(api, demo, path="/", ssr_mode=True)
+app = gr.mount_gradio_app(api, demo, path="/", ssr_mode=False)
 
 # Trigger ZeroGPU startup registration since we bypass demo.launch()
 try:
