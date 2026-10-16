@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.env
+
+# Model checkpoint (downloaded at container startup, not committed)
+model_files/
+*.pt
+*.pth
+.cache/
+
+# SUMO generated files (built at image build time, not committed)
+sumo_config/intersection.net.xml
+sumo_config/phases.json
+
+# IDEs
+.vscode/
+.idea/

@@ -1,0 +1,43 @@
+# BanTRel Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   docker compose up --build          ← first run (builds image + downloads model)
+#   docker compose up                  ← subsequent runs (reuses cached model)
+#   docker compose down                ← stop
+#
+# The PPO checkpoint is downloaded from Hugging Face Hub on first startup and
+# cached in the `model_cache` Docker volume — no re-download on container restart.
+#
+# Set HF_TOKEN in a .env file (copy .env.example → .env) if the model repo
+# is private, or leave it unset if it is public.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  bantrel-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bantrel-api:latest
+    container_name: bantrel-api
+    ports:
+      - "${HOST_PORT:-7860}:7860"
+    environment:
+      # Comma-separated allowed CORS origins. Use * for local frontend dev.
+      - BANTREL_CORS_ORIGINS=${BANTREL_CORS_ORIGINS:-*}
+      # HuggingFace token — needed only if model repo is private.
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # Persist the downloaded PPO checkpoint across container restarts.
+      - model_cache:/app/model_files
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  model_cache:
+    driver: local
