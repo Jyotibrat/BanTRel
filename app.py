@@ -3,19 +3,15 @@ FastAPI backend for the BanTRel web demo, served from a Hugging Face Gradio
 Space running on ZeroGPU.
 
 Flow: POST /simulate returns a job_id immediately; the actual SUMO run
-happens in a background task (anywhere from a few seconds to ~1-2 min
-depending on n_runs and demand size). The frontend polls
-GET /simulate/{job_id} until status == "done" or "error".
+happens in a background task. The frontend polls GET /simulate/{job_id}
+until status == "done" or "error".
 
 ZeroGPU notes
--------------
-* ZeroGPU refuses to start a Space with no @spaces.GPU function, so a tiny
-  never-called function is declared below purely to satisfy that check.
-* The simulation itself (SUMO + a small PPO policy) is CPU work and runs
-  directly in the background task. It is deliberately NOT wrapped in
-  @spaces.GPU, so it does not consume GPU quota.
-* On a Gradio SDK Space the platform runs `python app.py`, so this file must
-  start the server itself (see the uvicorn.run call at the bottom).
+------------
+* A never-called @spaces.GPU probe is retained for Space startup detection.
+* The simulation itself (SUMO + PPO policy) deliberately runs on CPU and
+  does not call the GPU probe or consume GPU allocation time.
+* This module starts the mounted FastAPI + Gradio ASGI app with Uvicorn.
 """
 
 # `spaces` must be imported before torch (which simulation/ imports below).
@@ -38,7 +34,7 @@ except ImportError:  # local development without the `spaces` package
 
 @spaces.GPU(duration=1)
 def _zerogpu_keepalive() -> None:
-    """Never called. Only satisfies ZeroGPU's startup check."""
+    """Never called. Only satisfies ZeroGPU's startup detection requirement."""
     return None
 
 
@@ -54,28 +50,33 @@ from typing import Literal, Optional
 import gradio as gr
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from download_checkpoint import ensure_checkpoint
+from embedded_assets import ensure_assets
 from simulation.runner import run_simulation
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SUMO_CONFIG_DIR = os.path.join(BASE_DIR, "sumo_config")
 NET_PATH = os.path.join(SUMO_CONFIG_DIR, "intersection.net.xml")
-# Prefer an env var so you can swap checkpoints without a code change.
 CHECKPOINT_PATH = os.environ.get(
     "BANTREL_CHECKPOINT", os.path.join(BASE_DIR, "model_files", "ppo_bangalore.pt")
 )
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+FAVICON_PATH = os.path.join(ASSETS_DIR, "favicon.ico")
+LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
+ensure_assets(BASE_DIR)
 
 MAX_N_RUNS = 3
-MAX_CUSTOM_VEHICLES = 60_000  # ~3.7x the default day, generous headroom before state clipping dominates
-MAX_PENDING_JOBS = 4          # queued + running; beyond this POST /simulate returns 429
-JOB_TTL_SECONDS = 30 * 60     # finished jobs are discarded after this long
+MAX_CUSTOM_VEHICLES = 60_000
+MAX_PENDING_JOBS = 4
+JOB_TTL_SECONDS = 30 * 60
 
 
 # --------------------------------------------------------------------------
-# Startup: build the SUMO network and fetch the checkpoint if missing.
-# Failures are printed but do not stop the server, so /health can report them.
+# Startup: build SUMO network and fetch the checkpoint if missing.
+# Failures are logged but do not prevent /health from reporting their status.
 # --------------------------------------------------------------------------
 if not os.path.exists(NET_PATH):
     try:
@@ -95,20 +96,17 @@ except Exception:  # noqa: BLE001
 
 
 # --------------------------------------------------------------------------
-# API
+# FastAPI API — these endpoints remain unchanged for the React frontend.
 # --------------------------------------------------------------------------
 api = FastAPI(title="BanTRel Simulation API")
-
 api.add_middleware(
     CORSMiddleware,
-    # Set BANTREL_CORS_ORIGINS=https://bantrel.becore.space in the Space
-    # variables to lock this down; "*" is fine for a public demo.
     allow_origins=os.environ.get("BANTREL_CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-jobs: dict[str, dict] = {}  # in-memory job store; lost on restart
+jobs: dict[str, dict] = {}  # In-memory demo job store; lost on Space restart.
 _jobs_lock = threading.Lock()
 # SUMO/TraCI runs share process-level state, so run one simulation at a time.
 _SIM_SLOT = threading.Semaphore(1)
@@ -119,9 +117,9 @@ class SimulateRequest(BaseModel):
     policy: Literal["ppo", "fixed_cycle", "both"] = "both"
     period: Optional[Literal[
         "night", "morning_rush", "mid_morning", "afternoon", "evening_rush", "evening"
-    ]] = None                      # preset-only; omit for the full 24h canonical day
-    total_vehicles: Optional[int] = None       # custom-only
-    car_pct: Optional[float] = None            # custom-only, 0-100
+    ]] = None
+    total_vehicles: Optional[int] = None
+    car_pct: Optional[float] = None
     motorcycle_pct: Optional[float] = None
     autorickshaw_pct: Optional[float] = None
     n_runs: int = 1
@@ -130,10 +128,10 @@ class SimulateRequest(BaseModel):
 
     @field_validator("n_runs")
     @classmethod
-    def _clamp_runs(cls, v):
-        if not (1 <= v <= MAX_N_RUNS):
+    def _clamp_runs(cls, value):
+        if not (1 <= value <= MAX_N_RUNS):
             raise ValueError(f"n_runs must be between 1 and {MAX_N_RUNS}")
-        return v
+        return value
 
     def resolve_mix(self) -> dict[str, float] | None:
         if self.mode != "custom":
@@ -143,8 +141,11 @@ class SimulateRequest(BaseModel):
             raise ValueError("custom mode requires car_pct, motorcycle_pct, autorickshaw_pct")
         if abs(sum(pcts) - 100) > 0.5:
             raise ValueError(f"vehicle mix percentages must sum to 100 (got {sum(pcts)})")
-        return {"car": self.car_pct / 100, "bike": self.motorcycle_pct / 100,
-                "auto": self.autorickshaw_pct / 100}
+        return {
+            "car": self.car_pct / 100,
+            "bike": self.motorcycle_pct / 100,
+            "auto": self.autorickshaw_pct / 100,
+        }
 
 
 def _set_job(job_id: str, **fields) -> None:
@@ -186,7 +187,7 @@ def _run_job(job_id: str, req: SimulateRequest) -> None:
                 seed=req.seed,
             )
             _set_job(job_id, status="done", result=result)
-        except Exception as exc:  # noqa: BLE001 - surface any failure to the client
+        except Exception as exc:  # noqa: BLE001
             _set_job(job_id, status="error", error=str(exc), trace=traceback.format_exc())
 
 
@@ -194,11 +195,9 @@ def _run_job(job_id: str, req: SimulateRequest) -> None:
 async def start_simulation(req: SimulateRequest, background_tasks: BackgroundTasks):
     _purge_old_jobs()
     with _jobs_lock:
-        pending = sum(1 for j in jobs.values() if j["status"] in ("queued", "running"))
+        pending = sum(1 for job in jobs.values() if job["status"] in ("queued", "running"))
         if pending >= MAX_PENDING_JOBS:
-            raise HTTPException(
-                status_code=429, detail="Server is busy, please try again shortly"
-            )
+            raise HTTPException(status_code=429, detail="Server is busy, please try again shortly")
         job_id = str(uuid.uuid4())
         jobs[job_id] = {"status": "queued", "created": time.time()}
     background_tasks.add_task(_run_job, job_id, req)
@@ -211,7 +210,7 @@ async def get_status(job_id: str):
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="job not found")
-        return {k: v for k, v in job.items() if k != "created"}
+        return {key: value for key, value in job.items() if key != "created"}
 
 
 @api.get("/health")
@@ -223,24 +222,106 @@ async def health():
     }
 
 
+@api.get("/favicon.ico", include_in_schema=False)
+@api.get("/assets/favicon.ico", include_in_schema=False)
+async def favicon():
+    if os.path.exists(FAVICON_PATH):
+        return FileResponse(FAVICON_PATH, media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="Favicon not found")
+
+
+@api.get("/assets/logo.png", include_in_schema=False)
+@api.get("/logo.png", include_in_schema=False)
+async def logo():
+    if os.path.exists(LOGO_PATH):
+        return FileResponse(LOGO_PATH, media_type="image/png")
+    raise HTTPException(status_code=404, detail="Logo not found")
+
+
+def _check_engine_status():
+    with _jobs_lock:
+        active_jobs = len(jobs)
+    return {
+        "status": "online",
+        "server_time_utc": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        "network_built": os.path.exists(NET_PATH),
+        "checkpoint_found": os.path.exists(CHECKPOINT_PATH),
+        "active_jobs_in_memory": active_jobs,
+        "max_pending_jobs": MAX_PENDING_JOBS,
+    }
+
+
 # --------------------------------------------------------------------------
-# Gradio shell (required for a Gradio SDK / ZeroGPU Space) + server start
+# Gradio landing page.
+# STITCH_HTML already contains its own <style> block so CSS travels with the
+# HTML regardless of how Gradio routes the css= parameter.
+# CUSTOM_CSS provides the container-level resets and is injected via head=.
 # --------------------------------------------------------------------------
-with gr.Blocks(title="BanTRel Backend") as demo:
-    gr.Markdown("BanTRel backend API is running. See `/health` and `/docs`.")
-    # Wires the keepalive function into Gradio so it is visible to ZeroGPU.
+from stitch_frontend import CUSTOM_CSS, HEAD_HTML, STITCH_HTML
+
+# In Gradio 6 css= was moved from gr.Blocks to launch(). Since we use
+# mount_gradio_app we inject CUSTOM_CSS through the head= parameter instead.
+FULL_HEAD = HEAD_HTML + f"<style>{CUSTOM_CSS}</style>"
+
+with gr.Blocks(
+    title="BanTRel — AI-Powered Traffic Signal Control",
+) as demo:
+    gr.HTML(STITCH_HTML)
+
+    # Required for the ZeroGPU startup check. It is deliberately never invoked.
     gr.Button("keepalive", visible=False).click(_zerogpu_keepalive, api_name=False)
 
-app = gr.mount_gradio_app(api, demo, path="/", ssr_mode=False)
+try:
+    app = gr.mount_gradio_app(
+        api,
+        demo,
+        path="/",
+        ssr_mode=False,
+        footer_links=[],
+        head=FULL_HEAD,
+        favicon_path=FAVICON_PATH,
+        allowed_paths=[ASSETS_DIR],
+    )
+except TypeError:
+    try:
+        app = gr.mount_gradio_app(
+            api,
+            demo,
+            path="/",
+            ssr_mode=False,
+            footer_links=[],
+            head=FULL_HEAD,
+            favicon_path=FAVICON_PATH,
+        )
+    except TypeError:
+        try:
+            app = gr.mount_gradio_app(
+                api,
+                demo,
+                path="/",
+                ssr_mode=False,
+                footer_links=[],
+                head=FULL_HEAD,
+            )
+        except TypeError:
+            try:
+                app = gr.mount_gradio_app(
+                    api, demo, path="/", ssr_mode=False, footer_links=[]
+                )
+            except TypeError:
+                app = gr.mount_gradio_app(api, demo, path="/", ssr_mode=False)
 
-# Trigger ZeroGPU startup registration since we bypass demo.launch()
+# Trigger ZeroGPU startup registration because this app uses mount_gradio_app
+# instead of demo.launch(). Keep this block unchanged unless runtime testing
+# shows the installed `spaces` version requires a different hook.
 try:
     from spaces.zero import startup as zero_startup
     zero_startup()
-except Exception:
+except (ImportError, AttributeError):
     pass
+except Exception:
+    traceback.print_exc()
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=7860)

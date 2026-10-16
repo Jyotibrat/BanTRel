@@ -19,3 +19,9 @@ model_files/
 # IDEs
 .vscode/
 .idea/
+
+# Binary assets (auto-generated at runtime via embedded_assets.py)
+assets/*.png
+assets/*.ico
+assets/*.jpg
+assets/*.jpeg
