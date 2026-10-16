@@ -1,27 +1,37 @@
+# BanTRel Docker Backend
+# ─────────────────────────────────────────────────────────────────────────────
+# Base: Python 3.11 slim (same as HF Spaces default).
+# System deps: sumo + sumo-tools (installs netconvert + sumo binary).
+# ─────────────────────────────────────────────────────────────────────────────
+
 FROM python:3.11-slim
 
+# Install SUMO (netconvert + sumo binary via apt)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    sumo sumo-tools \
+    sumo \
+    sumo-tools \
     && rm -rf /var/lib/apt/lists/*
 
 ENV SUMO_HOME=/usr/share/sumo
 ENV PYTHONUNBUFFERED=1
+ENV PORT=7860
 
 WORKDIR /app
 
+# ── Install Python deps first (cached layer) ──────────────────────────────────
 COPY requirements.txt .
-ENV PIP_DEFAULT_TIMEOUT=1000
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ── Copy source ────────────────────────────────────────────────────────────────
 COPY . .
 
-# Build the (fixed) network + phase strings once, at image build time,
-# not on every request. sumo_config/*.xml and phases.json get baked in.
+# ── Build the SUMO intersection network once at image build time ───────────────
+# This writes sumo_config/intersection.net.xml + sumo_config/phases.json.
+# Baking them into the image means no netconvert call per request.
 RUN python simulation/build_network.py
 
-# Place your downloaded checkpoint at model_files/ppo_bangalore.pt before
-# building, OR set BANTREL_CHECKPOINT to a path you fetch at container
-# startup (e.g. via huggingface_hub.hf_hub_download in an entrypoint script).
-
+# ── Expose API port ────────────────────────────────────────────────────────────
 EXPOSE 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+
+# ── Start FastAPI via Uvicorn ──────────────────────────────────────────────────
+CMD ["uvicorn", "app:api", "--host", "0.0.0.0", "--port", "7860"]
